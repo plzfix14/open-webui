@@ -353,6 +353,17 @@
 												/>
 											</div>
 										{/if}
+
+										{#if mode === 'signin' && $config?.features?.enable_password_reset}
+											<div class="mt-2 text-right">
+												<a
+													href="/auth/forgot-password"
+													class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 underline"
+												>
+													{$i18n.t('Forgot password?')}
+												</a>
+											</div>
+										{/if}
 									</div>
 								{/if}
 								<div class="mt-5">

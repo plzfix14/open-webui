@@ -882,6 +882,29 @@ PIP_PACKAGE_INDEX_OPTIONS = os.getenv("PIP_PACKAGE_INDEX_OPTIONS", "").split()
 
 
 ####################################
+# PASSWORD RESET / MAILGUN CONFIGURATION
+####################################
+
+ENABLE_PASSWORD_RESET = (
+    os.environ.get("ENABLE_PASSWORD_RESET", "False").lower() == "true"
+)
+
+# Mailgun configuration
+MAILGUN_API_KEY = os.environ.get("MAILGUN_API_KEY", "")
+MAILGUN_DOMAIN = os.environ.get("MAILGUN_DOMAIN", "")
+MAILGUN_FROM_EMAIL = os.environ.get("MAILGUN_FROM_EMAIL", "")
+MAILGUN_API_URL = os.environ.get(
+    "MAILGUN_API_URL", "https://api.mailgun.net/v3"
+)  # Use https://api.eu.mailgun.net/v3 for EU region
+
+# Password reset token expiry in seconds (default: 1 hour)
+PASSWORD_RESET_TOKEN_EXPIRY = os.environ.get("PASSWORD_RESET_TOKEN_EXPIRY", "3600")
+try:
+    PASSWORD_RESET_TOKEN_EXPIRY = int(PASSWORD_RESET_TOKEN_EXPIRY)
+except Exception:
+    PASSWORD_RESET_TOKEN_EXPIRY = 3600
+
+####################################
 # PROGRESSIVE WEB APP OPTIONS
 ####################################
 
