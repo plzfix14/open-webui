@@ -18,6 +18,13 @@ from open_webui.models.auths import (
     SignupForm,
     UpdatePasswordForm,
 )
+from open_webui.models.password_resets import (
+    ForgotPasswordForm,
+    ResetPasswordForm,
+    PasswordResetTokens,
+    generate_reset_token,
+    hash_token,
+)
 from open_webui.models.users import (
     UserProfileImageResponse,
     Users,
@@ -37,7 +44,10 @@ from open_webui.env import (
     WEBUI_AUTH_COOKIE_SECURE,
     WEBUI_AUTH_SIGNOUT_REDIRECT_URL,
     ENABLE_INITIAL_ADMIN_SIGNUP,
+    ENABLE_PASSWORD_RESET,
+    PASSWORD_RESET_TOKEN_EXPIRY,
 )
+from open_webui.utils.email import send_password_reset_email, is_email_configured
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response, JSONResponse
 from open_webui.config import (
@@ -208,6 +218,156 @@ async def update_password(
             raise HTTPException(400, detail=ERROR_MESSAGES.INCORRECT_PASSWORD)
     else:
         raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
+
+
+############################
+# Forgot Password
+############################
+
+
+@router.post("/forgot-password")
+async def forgot_password(request: Request, form_data: ForgotPasswordForm):
+    """
+    Request a password reset email.
+    Always returns success to prevent email enumeration attacks.
+    """
+    if not ENABLE_PASSWORD_RESET:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.PASSWORD_RESET_NOT_ENABLED,
+        )
+
+    if not is_email_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=ERROR_MESSAGES.PASSWORD_RESET_EMAIL_NOT_CONFIGURED,
+        )
+
+    email = form_data.email.lower().strip()
+
+    # Validate email format
+    if not validate_email_format(email):
+        # Return success message anyway to prevent enumeration
+        return {"message": ERROR_MESSAGES.PASSWORD_RESET_EMAIL_SENT}
+
+    # Check if user exists
+    user = Users.get_user_by_email(email)
+
+    if user:
+        try:
+            # Generate reset token
+            token = generate_reset_token()
+            token_hash = hash_token(token)
+            expires_at = int(time.time()) + PASSWORD_RESET_TOKEN_EXPIRY
+
+            # Store the token
+            PasswordResetTokens.create_reset_token(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=expires_at,
+            )
+
+            # Build reset link
+            webui_url = request.app.state.config.WEBUI_URL or str(request.base_url).rstrip("/")
+            reset_link = f"{webui_url}/auth/reset-password?token={token}"
+
+            # Send the email
+            send_password_reset_email(
+                to_email=email,
+                reset_link=reset_link,
+                user_name=user.name,
+                webui_url=webui_url,
+            )
+
+            log.info(f"Password reset email sent to {email}")
+        except Exception as e:
+            log.error(f"Error sending password reset email: {e}")
+            # Don't expose the error to prevent information leakage
+
+    # Always return success to prevent email enumeration
+    return {"message": ERROR_MESSAGES.PASSWORD_RESET_EMAIL_SENT}
+
+
+@router.post("/reset-password")
+async def reset_password(request: Request, form_data: ResetPasswordForm):
+    """
+    Reset password using a valid token.
+    """
+    if not ENABLE_PASSWORD_RESET:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.PASSWORD_RESET_NOT_ENABLED,
+        )
+
+    token = form_data.token
+    new_password = form_data.new_password
+
+    # Validate password
+    try:
+        validate_password(new_password)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Hash the token and look it up
+    token_hash = hash_token(token)
+    token_record = PasswordResetTokens.get_valid_token(token_hash)
+
+    if not token_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.PASSWORD_RESET_INVALID_TOKEN,
+        )
+
+    # Get the user
+    user = Users.get_user_by_id(token_record.user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.PASSWORD_RESET_INVALID_TOKEN,
+        )
+
+    # Update the password
+    hashed_password = get_password_hash(new_password)
+    success = Auths.update_user_password_by_id(user.id, hashed_password)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ERROR_MESSAGES.PASSWORD_RESET_FAILED,
+        )
+
+    # Mark the token as used
+    PasswordResetTokens.mark_token_as_used(token_record.id)
+
+    # Invalidate all existing tokens for this user (optional security measure)
+    PasswordResetTokens.delete_user_tokens(token_record.user_id)
+
+    log.info(f"Password reset successful for user {user.id}")
+
+    return {"message": ERROR_MESSAGES.PASSWORD_RESET_SUCCESS}
+
+
+@router.get("/reset-password/verify")
+async def verify_reset_token(token: str):
+    """
+    Verify if a password reset token is valid.
+    """
+    if not ENABLE_PASSWORD_RESET:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.PASSWORD_RESET_NOT_ENABLED,
+        )
+
+    token_hash = hash_token(token)
+    token_record = PasswordResetTokens.get_valid_token(token_hash)
+
+    if not token_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.PASSWORD_RESET_INVALID_TOKEN,
+        )
+
+    return {"valid": True}
 
 
 ############################

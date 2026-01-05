@@ -109,6 +109,27 @@ class ERROR_MESSAGES(str, Enum):
         err if err else "The password does not meet the required validation criteria."
     )
 
+    # Password Reset Errors
+    PASSWORD_RESET_NOT_ENABLED = (
+        "Password reset is not enabled. Please contact your administrator."
+    )
+    PASSWORD_RESET_EMAIL_NOT_CONFIGURED = (
+        "Email service is not configured. Please contact your administrator."
+    )
+    PASSWORD_RESET_INVALID_TOKEN = (
+        "The password reset link is invalid or has expired. Please request a new one."
+    )
+    PASSWORD_RESET_TOKEN_USED = (
+        "This password reset link has already been used. Please request a new one."
+    )
+    PASSWORD_RESET_EMAIL_SENT = (
+        "If an account exists with this email, you will receive a password reset link shortly."
+    )
+    PASSWORD_RESET_SUCCESS = "Your password has been reset successfully. You can now sign in."
+    PASSWORD_RESET_FAILED = (
+        "Failed to reset password. Please try again or contact support."
+    )
+
 
 class TASKS(str, Enum):
     def __str__(self) -> str:
